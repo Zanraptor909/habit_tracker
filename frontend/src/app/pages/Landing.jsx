@@ -1,19 +1,8 @@
+// src/app/pages/Landing.jsx
 import React from "react";
+import GoogleSignInButton from "../components/SignInButton";  // ✅ reusable
 
-function SignInButton({ onSignIn }) {
-  return (
-    <button className="btn btn-google btn-lg" onClick={onSignIn}>
-      <img
-        className="gicon"
-        alt=""
-        src="https://www.gstatic.com/images/branding/product/1x/gsa_64dp.png"
-      />
-      Sign in with Google
-    </button>
-  );
-}
-
-export default function Landing({ onSignIn }) {
+export default function Landing() {
   return (
     <>
       <header className="navbar">
@@ -22,7 +11,7 @@ export default function Landing({ onSignIn }) {
           <nav style={{ display: "flex", gap: 8 }}>
             <a className="btn btn-text" href="#features">Features</a>
             <a className="btn btn-text" href="#how">How it works</a>
-            <SignInButton onSignIn={onSignIn} />
+            <GoogleSignInButton />                  {/* ✅ */}
           </nav>
         </div>
       </header>
@@ -32,7 +21,7 @@ export default function Landing({ onSignIn }) {
           <h1>Build habits you’ll actually keep</h1>
           <p className="muted">Simple streaks, time‑of‑day reminders, privacy‑friendly.</p>
           <div style={{ display: "flex", gap: 12, justifyContent: "center", marginTop: 16 }}>
-            <SignInButton onSignIn={onSignIn} />
+            <GoogleSignInButton />                  {/* ✅ */}
             <a className="btn btn-tonal btn-lg" href="#features">See features</a>
           </div>
         </div>

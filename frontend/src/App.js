@@ -4,33 +4,28 @@ import { Routes, Route, useNavigate } from "react-router-dom";
 import Landing from "./app/pages/Landing";
 import Authed from "./app/pages/Authed";
 import ProtectedRoute from "./app/authed/ProtectedRoute";
-import useAuth from "./app/authed/useAuth";
+import { useAuth } from "./app/authed/AuthProvider";   // ✅ use real provider
 
 import "./app/styles/App.css";
 
-function App() {
-  const { isAuthed, signIn, signOut } = useAuth();
+export default function App() {
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
 
-  const handleGoogleSignIn = async () => {
-    await signIn();
-    navigate("/app");
-  };
+  const isAuthed = !!user;
 
-  const handleSignOut = () => {
-    signOut();
+  const handleSignOut = async () => {
+    await logout();
     navigate("/");
   };
 
   return (
     <Routes>
-      <Route path="/" element={<Landing onSignIn={handleGoogleSignIn} />} />
+      <Route path="/" element={<Landing />} />   {/* ✅ no onSignIn prop */}
       <Route element={<ProtectedRoute isAuthed={isAuthed} />}>
         <Route path="/app" element={<Authed onSignOut={handleSignOut} />} />
       </Route>
-      <Route path="*" element={<Landing onSignIn={handleGoogleSignIn} />} />
+      <Route path="*" element={<Landing />} />
     </Routes>
   );
 }
-
-export default App;

@@ -1,0 +1,436 @@
+-- DROP SCHEMA public;
+
+CREATE SCHEMA public AUTHORIZATION pg_database_owner;
+
+-- DROP TYPE public."habit_cadence";
+
+CREATE TYPE public."habit_cadence" AS ENUM (
+	'DAILY',
+	'WEEKLY',
+	'CUSTOM');
+
+-- DROP TYPE public."time_period";
+
+CREATE TYPE public."time_period" AS ENUM (
+	'MORNING',
+	'AFTERNOON',
+	'NIGHT');
+-- public.app_user definition
+
+-- Drop table
+
+-- DROP TABLE public.app_user;
+
+CREATE TABLE public.app_user (
+	id uuid DEFAULT gen_random_uuid() NOT NULL,
+	email text NOT NULL,
+	"name" text NULL,
+	image_url text NULL,
+	timezone text DEFAULT 'America/Chicago'::text NOT NULL,
+	created_at timestamptz DEFAULT now() NOT NULL,
+	CONSTRAINT app_user_email_key UNIQUE (email),
+	CONSTRAINT app_user_pkey PRIMARY KEY (id)
+);
+
+
+-- public.habit definition
+
+-- Drop table
+
+-- DROP TABLE public.habit;
+
+CREATE TABLE public.habit (
+	id uuid DEFAULT gen_random_uuid() NOT NULL,
+	user_id uuid NOT NULL,
+	"name" text NOT NULL,
+	description text NULL,
+	archived bool DEFAULT false NOT NULL,
+	created_at timestamptz DEFAULT now() NOT NULL,
+	CONSTRAINT habit_pkey PRIMARY KEY (id),
+	CONSTRAINT habit_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.app_user(id) ON DELETE CASCADE
+);
+CREATE INDEX habit_user_idx ON public.habit USING btree (user_id);
+
+
+-- public.habit_log definition
+
+-- Drop table
+
+-- DROP TABLE public.habit_log;
+
+CREATE TABLE public.habit_log (
+	id uuid DEFAULT gen_random_uuid() NOT NULL,
+	habit_id uuid NOT NULL,
+	"period" public."time_period" NOT NULL,
+	"day" date NOT NULL,
+	completed bool DEFAULT true NOT NULL,
+	note text NULL,
+	created_at timestamptz DEFAULT now() NOT NULL,
+	CONSTRAINT habit_log_habit_id_day_period_key UNIQUE (habit_id, day, period),
+	CONSTRAINT habit_log_pkey PRIMARY KEY (id),
+	CONSTRAINT habit_log_habit_id_fkey FOREIGN KEY (habit_id) REFERENCES public.habit(id) ON DELETE CASCADE
+);
+CREATE INDEX habit_log_lookup_idx ON public.habit_log USING btree (habit_id, day);
+
+
+-- public.habit_schedule definition
+
+-- Drop table
+
+-- DROP TABLE public.habit_schedule;
+
+CREATE TABLE public.habit_schedule (
+	habit_id uuid NOT NULL,
+	cadence public."habit_cadence" DEFAULT 'DAILY'::habit_cadence NOT NULL,
+	dow_mask int4 NULL,
+	interval_days int4 NULL,
+	start_date date DEFAULT CURRENT_DATE NOT NULL,
+	CONSTRAINT habit_schedule_pkey PRIMARY KEY (habit_id),
+	CONSTRAINT habit_schedule_habit_id_fkey FOREIGN KEY (habit_id) REFERENCES public.habit(id) ON DELETE CASCADE
+);
+
+
+-- public.habit_slot definition
+
+-- Drop table
+
+-- DROP TABLE public.habit_slot;
+
+CREATE TABLE public.habit_slot (
+	id uuid DEFAULT gen_random_uuid() NOT NULL,
+	habit_id uuid NOT NULL,
+	"period" public."time_period" NOT NULL,
+	local_time time NULL,
+	"notify" bool DEFAULT false NOT NULL,
+	CONSTRAINT habit_slot_habit_id_period_key UNIQUE (habit_id, period),
+	CONSTRAINT habit_slot_pkey PRIMARY KEY (id),
+	CONSTRAINT habit_slot_habit_fk FOREIGN KEY (habit_id) REFERENCES public.habit(id) ON DELETE CASCADE,
+	CONSTRAINT habit_slot_habit_id_fkey FOREIGN KEY (habit_id) REFERENCES public.habit(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_slot_habit_period ON public.habit_slot USING btree (habit_id, period);
+
+
+
+-- DROP FUNCTION public.armor(bytea);
+
+CREATE OR REPLACE FUNCTION public.armor(bytea)
+ RETURNS text
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_armor$function$
+;
+
+-- DROP FUNCTION public.armor(bytea, _text, _text);
+
+CREATE OR REPLACE FUNCTION public.armor(bytea, text[], text[])
+ RETURNS text
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_armor$function$
+;
+
+-- DROP FUNCTION public.crypt(text, text);
+
+CREATE OR REPLACE FUNCTION public.crypt(text, text)
+ RETURNS text
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_crypt$function$
+;
+
+-- DROP FUNCTION public.dearmor(text);
+
+CREATE OR REPLACE FUNCTION public.dearmor(text)
+ RETURNS bytea
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_dearmor$function$
+;
+
+-- DROP FUNCTION public.decrypt(bytea, bytea, text);
+
+CREATE OR REPLACE FUNCTION public.decrypt(bytea, bytea, text)
+ RETURNS bytea
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_decrypt$function$
+;
+
+-- DROP FUNCTION public.decrypt_iv(bytea, bytea, bytea, text);
+
+CREATE OR REPLACE FUNCTION public.decrypt_iv(bytea, bytea, bytea, text)
+ RETURNS bytea
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_decrypt_iv$function$
+;
+
+-- DROP FUNCTION public.digest(bytea, text);
+
+CREATE OR REPLACE FUNCTION public.digest(bytea, text)
+ RETURNS bytea
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_digest$function$
+;
+
+-- DROP FUNCTION public.digest(text, text);
+
+CREATE OR REPLACE FUNCTION public.digest(text, text)
+ RETURNS bytea
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_digest$function$
+;
+
+-- DROP FUNCTION public.encrypt(bytea, bytea, text);
+
+CREATE OR REPLACE FUNCTION public.encrypt(bytea, bytea, text)
+ RETURNS bytea
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_encrypt$function$
+;
+
+-- DROP FUNCTION public.encrypt_iv(bytea, bytea, bytea, text);
+
+CREATE OR REPLACE FUNCTION public.encrypt_iv(bytea, bytea, bytea, text)
+ RETURNS bytea
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_encrypt_iv$function$
+;
+
+-- DROP FUNCTION public.gen_random_bytes(int4);
+
+CREATE OR REPLACE FUNCTION public.gen_random_bytes(integer)
+ RETURNS bytea
+ LANGUAGE c
+ PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_random_bytes$function$
+;
+
+-- DROP FUNCTION public.gen_random_uuid();
+
+CREATE OR REPLACE FUNCTION public.gen_random_uuid()
+ RETURNS uuid
+ LANGUAGE c
+ PARALLEL SAFE
+AS '$libdir/pgcrypto', $function$pg_random_uuid$function$
+;
+
+-- DROP FUNCTION public.gen_salt(text, int4);
+
+CREATE OR REPLACE FUNCTION public.gen_salt(text, integer)
+ RETURNS text
+ LANGUAGE c
+ PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_gen_salt_rounds$function$
+;
+
+-- DROP FUNCTION public.gen_salt(text);
+
+CREATE OR REPLACE FUNCTION public.gen_salt(text)
+ RETURNS text
+ LANGUAGE c
+ PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_gen_salt$function$
+;
+
+-- DROP FUNCTION public.hmac(text, text, text);
+
+CREATE OR REPLACE FUNCTION public.hmac(text, text, text)
+ RETURNS bytea
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_hmac$function$
+;
+
+-- DROP FUNCTION public.hmac(bytea, bytea, text);
+
+CREATE OR REPLACE FUNCTION public.hmac(bytea, bytea, text)
+ RETURNS bytea
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_hmac$function$
+;
+
+-- DROP FUNCTION public.pgp_armor_headers(in text, out text, out text);
+
+CREATE OR REPLACE FUNCTION public.pgp_armor_headers(text, OUT key text, OUT value text)
+ RETURNS SETOF record
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_armor_headers$function$
+;
+
+-- DROP FUNCTION public.pgp_key_id(bytea);
+
+CREATE OR REPLACE FUNCTION public.pgp_key_id(bytea)
+ RETURNS text
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_key_id_w$function$
+;
+
+-- DROP FUNCTION public.pgp_pub_decrypt(bytea, bytea, text);
+
+CREATE OR REPLACE FUNCTION public.pgp_pub_decrypt(bytea, bytea, text)
+ RETURNS text
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_pub_decrypt_text$function$
+;
+
+-- DROP FUNCTION public.pgp_pub_decrypt(bytea, bytea);
+
+CREATE OR REPLACE FUNCTION public.pgp_pub_decrypt(bytea, bytea)
+ RETURNS text
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_pub_decrypt_text$function$
+;
+
+-- DROP FUNCTION public.pgp_pub_decrypt(bytea, bytea, text, text);
+
+CREATE OR REPLACE FUNCTION public.pgp_pub_decrypt(bytea, bytea, text, text)
+ RETURNS text
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_pub_decrypt_text$function$
+;
+
+-- DROP FUNCTION public.pgp_pub_decrypt_bytea(bytea, bytea, text);
+
+CREATE OR REPLACE FUNCTION public.pgp_pub_decrypt_bytea(bytea, bytea, text)
+ RETURNS bytea
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_pub_decrypt_bytea$function$
+;
+
+-- DROP FUNCTION public.pgp_pub_decrypt_bytea(bytea, bytea, text, text);
+
+CREATE OR REPLACE FUNCTION public.pgp_pub_decrypt_bytea(bytea, bytea, text, text)
+ RETURNS bytea
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_pub_decrypt_bytea$function$
+;
+
+-- DROP FUNCTION public.pgp_pub_decrypt_bytea(bytea, bytea);
+
+CREATE OR REPLACE FUNCTION public.pgp_pub_decrypt_bytea(bytea, bytea)
+ RETURNS bytea
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_pub_decrypt_bytea$function$
+;
+
+-- DROP FUNCTION public.pgp_pub_encrypt(text, bytea);
+
+CREATE OR REPLACE FUNCTION public.pgp_pub_encrypt(text, bytea)
+ RETURNS bytea
+ LANGUAGE c
+ PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_pub_encrypt_text$function$
+;
+
+-- DROP FUNCTION public.pgp_pub_encrypt(text, bytea, text);
+
+CREATE OR REPLACE FUNCTION public.pgp_pub_encrypt(text, bytea, text)
+ RETURNS bytea
+ LANGUAGE c
+ PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_pub_encrypt_text$function$
+;
+
+-- DROP FUNCTION public.pgp_pub_encrypt_bytea(bytea, bytea, text);
+
+CREATE OR REPLACE FUNCTION public.pgp_pub_encrypt_bytea(bytea, bytea, text)
+ RETURNS bytea
+ LANGUAGE c
+ PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_pub_encrypt_bytea$function$
+;
+
+-- DROP FUNCTION public.pgp_pub_encrypt_bytea(bytea, bytea);
+
+CREATE OR REPLACE FUNCTION public.pgp_pub_encrypt_bytea(bytea, bytea)
+ RETURNS bytea
+ LANGUAGE c
+ PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_pub_encrypt_bytea$function$
+;
+
+-- DROP FUNCTION public.pgp_sym_decrypt(bytea, text);
+
+CREATE OR REPLACE FUNCTION public.pgp_sym_decrypt(bytea, text)
+ RETURNS text
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_sym_decrypt_text$function$
+;
+
+-- DROP FUNCTION public.pgp_sym_decrypt(bytea, text, text);
+
+CREATE OR REPLACE FUNCTION public.pgp_sym_decrypt(bytea, text, text)
+ RETURNS text
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_sym_decrypt_text$function$
+;
+
+-- DROP FUNCTION public.pgp_sym_decrypt_bytea(bytea, text, text);
+
+CREATE OR REPLACE FUNCTION public.pgp_sym_decrypt_bytea(bytea, text, text)
+ RETURNS bytea
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_sym_decrypt_bytea$function$
+;
+
+-- DROP FUNCTION public.pgp_sym_decrypt_bytea(bytea, text);
+
+CREATE OR REPLACE FUNCTION public.pgp_sym_decrypt_bytea(bytea, text)
+ RETURNS bytea
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_sym_decrypt_bytea$function$
+;
+
+-- DROP FUNCTION public.pgp_sym_encrypt(text, text, text);
+
+CREATE OR REPLACE FUNCTION public.pgp_sym_encrypt(text, text, text)
+ RETURNS bytea
+ LANGUAGE c
+ PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_sym_encrypt_text$function$
+;
+
+-- DROP FUNCTION public.pgp_sym_encrypt(text, text);
+
+CREATE OR REPLACE FUNCTION public.pgp_sym_encrypt(text, text)
+ RETURNS bytea
+ LANGUAGE c
+ PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_sym_encrypt_text$function$
+;
+
+-- DROP FUNCTION public.pgp_sym_encrypt_bytea(bytea, text, text);
+
+CREATE OR REPLACE FUNCTION public.pgp_sym_encrypt_bytea(bytea, text, text)
+ RETURNS bytea
+ LANGUAGE c
+ PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_sym_encrypt_bytea$function$
+;
+
+-- DROP FUNCTION public.pgp_sym_encrypt_bytea(bytea, text);
+
+CREATE OR REPLACE FUNCTION public.pgp_sym_encrypt_bytea(bytea, text)
+ RETURNS bytea
+ LANGUAGE c
+ PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_sym_encrypt_bytea$function$
+;

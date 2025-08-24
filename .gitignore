@@ -44,6 +44,12 @@ dist/
 build/
 *.tsbuildinfo
 
+# Package manager lockfiles
+# (keep only one of these in the repo depending on your package manager)
+yarn.lock
+pnpm-lock.yaml
+# keep package-lock.json if using npm
+
 # ---- Environment / Secrets ----
 .env
 .env.*
@@ -51,13 +57,18 @@ build/
 *.pem
 *.key
 *.crt
+*.local
 
 # ---- Database (Postgres) ----
-# Don't ignore schema/migration scripts, only local data dumps
-*.sql
+# Ignore dumps/backups, but keep schema/migrations
+dump*.sql
+backup*.sql
 *.sqlite3
 *.db
 pgdata/
+
+# ---- Deployment ----
+.vercel/
 
 # ---- IDEs / Editors ----
 .idea/
