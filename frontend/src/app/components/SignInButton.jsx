@@ -13,7 +13,7 @@ export default function GoogleSignInButton() {
       useOneTap
       onSuccess={async (credentialResponse) => {
         try {
-          const res = await fetch("/api/auth/google", {
+          const res = await fetch("/auth/google", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             credentials: "include",

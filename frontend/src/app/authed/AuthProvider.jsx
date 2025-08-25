@@ -10,7 +10,7 @@ export function AuthProvider({ children }) {
     // on load, ask backend who we are (checks session cookie)
     (async () => {
       try {
-        const res = await fetch("/api/me", { credentials: "include" });
+        const res = await fetch("/me", { credentials: "include" });
         if (res.ok) {
           const data = await res.json();
           setUser(data.user ?? null);
@@ -26,7 +26,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   const logout = async () => {
-    await fetch("/api/logout", { method: "POST", credentials: "include" });
+    await fetch("/logout", { method: "POST", credentials: "include" });
     setUser(null);
   };
 
