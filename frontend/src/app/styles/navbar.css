@@ -29,10 +29,10 @@
 
 /* Center (tabs) */
 .navbar .nav-center {
-  justify-self: center;
   display: flex;
   gap: 12px;
 }
+
 
 /* Right (user) */
 .navbar .nav-right {
@@ -41,3 +41,4 @@
   align-items: center;
   gap: 12px;
 }
+
