@@ -1,12 +1,25 @@
 // src/app/pages/Authed.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+  useCallback,
+  useMemo as useMemo2,
+} from "react";
 import { useAuth } from "../authed/AuthProvider";
 import userImg from "../../assets/user.png";
 
 const API_BASE = process.env.REACT_APP_API_BASE ?? "";
 const CHECKLIST_PATH = "/api/checklist/today";
 const LOG_PATH = "/api/habit_log";
-const HABITS_PATH = "/api/habits"; // <-- create habit here
+const HABITS_PATH = "/api/habits";
+const STATS_PATH = "/api/stats/daily_completion"; // optional (try/catch)
+
+const PERIODS = [
+  { key: "MORNING", label: "Morning", icon: "☀️" },
+  { key: "AFTERNOON", label: "Afternoon", icon: "🌤️" },
+  { key: "NIGHT", label: "Night", icon: "🌙" },
+];
 
 export default function Authed({ onSignOut }) {
   const { user } = useAuth(); // { id, email, name, image_url }
@@ -27,37 +40,93 @@ export default function Authed({ onSignOut }) {
   const [addMsg, setAddMsg] = useState(null);
   const [addError, setAddError] = useState(null);
 
-  // ---- Fetch today's checklist for this user ----
-  useEffect(() => {
+  // --- Streak data (last 21 days) ---
+  const [streakData, setStreakData] = useState([]); // [{date, completed, total, pct}]
+  const [streakErr, setStreakErr] = useState(null);
+
+  // ---- Helper: fetch today's checklist for this user ----
+  const fetchChecklist = useCallback(async () => {
     if (!user?.id) return;
-    let abort = false;
     setLoading(true);
     setErr(null);
 
-    const url = new URL(API_BASE + CHECKLIST_PATH, window.location.origin);
-    url.searchParams.set("user_id", String(user.id));
+    try {
+      const url = new URL(API_BASE + CHECKLIST_PATH, window.location.origin);
+      url.searchParams.set("user_id", String(user.id));
 
-    fetch(url.toString(), {
-      method: "GET",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-    })
-      .then(async (r) => {
-        if (!r.ok) throw new Error((await r.text()) || `Failed ${r.status}`);
-        return r.json();
-      })
-      .then((data) => !abort && setItems(Array.isArray(data) ? data : []))
-      .catch((e) => !abort && setErr(e.message || "Failed to load"))
-      .finally(() => !abort && setLoading(false));
+      const r = await fetch(url.toString(), {
+        method: "GET",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!r.ok) throw new Error((await r.text()) || `Failed ${r.status}`);
 
-    return () => {
-      abort = true;
-    };
+      const data = await r.json();
+      setItems(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setErr(e.message || "Failed to load");
+    } finally {
+      setLoading(false);
+    }
   }, [user?.id]);
+
+  // ---- Helper: fetch streaks (optional endpoint) ----
+  const fetchStreaks = useCallback(async () => {
+    if (!user?.id) return;
+    setStreakErr(null);
+
+    try {
+      const url = new URL(API_BASE + STATS_PATH, window.location.origin);
+      url.searchParams.set("user_id", String(user.id));
+      url.searchParams.set("days", "21");
+
+      const r = await fetch(url.toString(), {
+        method: "GET",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      if (!r.ok) throw new Error((await r.text()) || `Failed ${r.status}`);
+      // Expected shape: [{date:'YYYY-MM-DD', completed: <int>, total: <int>, pct: <0..1>}]
+      const data = await r.json();
+      if (Array.isArray(data) && data.length) {
+        setStreakData(
+          data.map((d) => ({
+            date: d.date,
+            completed: Number(d.completed ?? 0),
+            total: Number(d.total ?? 0),
+            pct:
+              d.pct != null
+                ? Number(d.pct)
+                : Number(d.total) > 0
+                ? Number(d.completed) / Number(d.total)
+                : 0,
+          }))
+        );
+      } else {
+        // graceful placeholder if no data returned
+        setStreakData([]);
+      }
+    } catch (e) {
+      // No backend yet? Show a placeholder rather than error spam.
+      setStreakErr(
+        "Streak data endpoint not available yet. Hook up /api/stats/daily_completion when ready."
+      );
+      setStreakData([]);
+    }
+  }, [user?.id]);
+
+  // ---- Load checklist + streaks on mount/user change ----
+  useEffect(() => {
+    fetchChecklist();
+    fetchStreaks();
+  }, [fetchChecklist, fetchStreaks]);
 
   // ---- Mark done handler (optimistic) ----
   const markDone = async (habit_id, period) => {
     setPostingId(habit_id);
+
+    // optimistic set completed
     setItems((prev) =>
       prev.map((it) =>
         it.habit_id === habit_id && it.period === period
@@ -79,6 +148,7 @@ export default function Authed({ onSignOut }) {
         }),
       });
       if (!res.ok) {
+        // revert
         setItems((prev) =>
           prev.map((it) =>
             it.habit_id === habit_id && it.period === period
@@ -88,6 +158,8 @@ export default function Authed({ onSignOut }) {
         );
         throw new Error((await res.text()) || `POST /habit_log failed`);
       }
+      // Update streaks too (today changed)
+      fetchStreaks();
     } catch (e) {
       console.error(e);
       alert(e.message || "Failed to mark done");
@@ -117,7 +189,7 @@ export default function Authed({ onSignOut }) {
         body: JSON.stringify({
           user_id: user?.id,
           name,
-          period: addPeriod,       // 'MORNING' | 'AFTERNOON' | 'NIGHT' | etc.
+          period: addPeriod, // 'MORNING' | 'AFTERNOON' | 'NIGHT'
           local_time: addTime || null, // optional "HH:MM"
         }),
       });
@@ -131,13 +203,146 @@ export default function Authed({ onSignOut }) {
       setAddPeriod("MORNING");
       setAddTime("");
       setAddMsg("Habit created! It will appear in Today when scheduled.");
-      // Optional: refresh today's checklist immediately
-      // You might re-run the same fetch here to include it if relevant to today.
+
+      // Refresh lists (no hard reload)
+      await fetchChecklist();
+      await fetchStreaks();
+
+      // Optional: close form after success
+      // setShowAdd(false);
     } catch (e) {
       setAddError(e.message || "Failed to create habit");
     } finally {
       setAddBusy(false);
     }
+  };
+
+  // ---- Group & sort items by period, then by time then name ----
+  const grouped = useMemo2(() => {
+    const byPeriod = {
+      MORNING: [],
+      AFTERNOON: [],
+      NIGHT: [],
+    };
+    for (const it of items) {
+      if (byPeriod[it.period]) byPeriod[it.period].push(it);
+    }
+    const sortFn = (a, b) => {
+      // sort null/empty times last
+      const ta = a.local_time || "99:99";
+      const tb = b.local_time || "99:99";
+      if (ta !== tb) return ta.localeCompare(tb);
+      return (a.name || "").localeCompare(b.name || "");
+    };
+    byPeriod.MORNING.sort(sortFn);
+    byPeriod.AFTERNOON.sort(sortFn);
+    byPeriod.NIGHT.sort(sortFn);
+    return byPeriod;
+  }, [items]);
+
+  const renderSection = (periodKey, label, icon) => {
+    const list = grouped[periodKey] || [];
+    return (
+      <div className="card elev-0" style={{ padding: 12 }}>
+        <div
+          className="card-header"
+          style={{ display: "flex", alignItems: "center", gap: 8 }}
+        >
+          <span style={{ fontSize: 20, lineHeight: 1 }}>{icon}</span>
+          <span style={{ fontWeight: 600 }}>{label}</span>
+        </div>
+
+        {list.length === 0 ? (
+          <div className="muted" style={{ padding: "4px 0 8px" }}>
+            Nothing scheduled for {label.toLowerCase()}.
+          </div>
+        ) : (
+          <ul className="list">
+            {list.map((it) => (
+              <li
+                key={`${it.habit_id}-${it.period}`}
+                className="list-item"
+                style={{ display: "grid", gap: 6 }}
+              >
+                {/* Top row: name + inline button */}
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 12,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      minWidth: 0,
+                    }}
+                  >
+                    <strong
+                      style={{
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {it.name}
+                    </strong>
+                    {/* Inline badge when completed */}
+                    {it.completed && (
+                      <span
+                        className="chip"
+                        style={{ fontSize: 12, padding: "2px 6px" }}
+                      >
+                        Done
+                      </span>
+                    )}
+                  </div>
+
+                  <button
+                    className="btn btn-outline btn-sm"
+                    style={{ whiteSpace: "nowrap" }}
+                    disabled={it.completed || postingId === it.habit_id}
+                    onClick={() => markDone(it.habit_id, it.period)}
+                  >
+                    {it.completed
+                      ? "Done"
+                      : postingId === it.habit_id
+                      ? "Saving…"
+                      : "Mark done"}
+                  </button>
+                </div>
+
+                {/* Second row: meta */}
+                <div
+                  className="muted"
+                  style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
+                >
+                  <span>{label}</span>
+                  {it.local_time ? (
+                    <span>• Reminder {it.local_time}</span>
+                  ) : null}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    );
+  };
+
+  // ---- Streak heatmap helpers ----
+  const maxPct = useMemo(() => {
+    if (!streakData.length) return 1;
+    return Math.max(...streakData.map((d) => d.pct ?? 0), 1);
+  }, [streakData]);
+
+  const cellColor = (pct) => {
+    // Green hue, darker with higher pct; keep accessible contrast
+    const intensity = Math.round(90 - Math.min(1, pct / (maxPct || 1)) * 60); // 90% -> 30%
+    return `hsl(140 60% ${intensity}%)`;
   };
 
   return (
@@ -150,8 +355,12 @@ export default function Authed({ onSignOut }) {
           <strong>Habit Tracker</strong>
 
           <nav style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <a className="btn btn-text" href="#today">Today</a>
-            <a className="btn btn-text" href="#habits">My Habits</a>
+            <a className="btn btn-text" href="#today">
+              Today
+            </a>
+            <a className="btn btn-text" href="#streaks">
+              Streaks
+            </a>
 
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <img
@@ -188,74 +397,46 @@ export default function Authed({ onSignOut }) {
       <main className="container" style={{ padding: "32px 0" }}>
         {/* ==================== TODAY ==================== */}
         <section id="today" className="card elev-1" style={{ marginBottom: 16 }}>
-          <div className="card-header">Today’s Checklist</div>
-
-          {loading ? (
-            <div className="muted">Loading…</div>
-          ) : err ? (
-            <div className="muted" style={{ color: "var(--error, #b00020)" }}>
-              {err}
+          {/* Header now has Add Habit on the right */}
+          <div
+            className="card-header"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+            }}
+          >
+            <span>Today’s Checklist</span>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => {
+                  setShowAdd((s) => !s);
+                  setAddMsg(null);
+                  setAddError(null);
+                }}
+              >
+                {showAdd ? "Close" : "Add habit"}
+              </button>
             </div>
-          ) : items.length === 0 ? (
-            <div className="muted">Nothing left for today 🎉</div>
-          ) : (
-            <ul className="list">
-              {items.map((it) => (
-                <li key={`${it.habit_id}-${it.period}`} className="list-item">
-                  <div>
-                    <strong>{it.name}</strong>
-                    <div className="muted">
-                      {it.period}
-                      {it.local_time ? ` • Reminder ${it.local_time}` : ""}
-                      {it.completed ? " • Completed" : ""}
-                    </div>
-                  </div>
-
-                  <button
-                    className="btn btn-outline btn-sm"
-                    disabled={it.completed || postingId === it.habit_id}
-                    onClick={() => markDone(it.habit_id, it.period)}
-                  >
-                    {it.completed
-                      ? "Done"
-                      : postingId === it.habit_id
-                      ? "Saving…"
-                      : "Mark done"}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        {/* ==================== MY HABITS ==================== */}
-        <section id="habits" className="card elev-1">
-          <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span>My Habits</span>
-            <button
-              className="btn btn-primary btn-sm"
-              onClick={() => {
-                setShowAdd((s) => !s);
-                setAddMsg(null);
-                setAddError(null);
-              }}
-            >
-              {showAdd ? "Close" : "Add habit"}
-            </button>
           </div>
 
-          {!showAdd ? (
-            <div className="muted">
-              Add a new habit to your schedule. You’ll see it in Today when it matches the selected period and time.
-            </div>
-          ) : (
-            <form onSubmit={onAddHabit} className="card elev-0" style={{ padding: 12, display: "grid", gap: 12 }}>
+          {/* Inline Add Habit form (toggles inside Today card) */}
+          {showAdd && (
+            <form
+              onSubmit={onAddHabit}
+              className="card elev-0"
+              style={{ padding: 12, display: "grid", gap: 12, margin: "0 12px 12px" }}
+            >
               <div style={{ display: "grid", gap: 6 }}>
-                <label htmlFor="habit-name"><strong>Name</strong></label>
+                <label htmlFor="habit-name">
+                  <strong>Name</strong>
+                </label>
                 <input
                   id="habit-name"
                   className="input"
-                  placeholder="Drink Water"
+                  placeholder="Brush Teeth"
                   value={addName}
                   onChange={(e) => setAddName(e.target.value)}
                   required
@@ -263,7 +444,9 @@ export default function Authed({ onSignOut }) {
               </div>
 
               <div style={{ display: "grid", gap: 6 }}>
-                <label htmlFor="habit-period"><strong>Period</strong></label>
+                <label htmlFor="habit-period">
+                  <strong>Period</strong>
+                </label>
                 <select
                   id="habit-period"
                   className="input"
@@ -278,7 +461,8 @@ export default function Authed({ onSignOut }) {
 
               <div style={{ display: "grid", gap: 6 }}>
                 <label htmlFor="habit-time">
-                  <strong>Reminder time</strong> <span className="muted">(optional)</span>
+                  <strong>Reminder time</strong>{" "}
+                  <span className="muted">(optional)</span>
                 </label>
                 <input
                   id="habit-time"
@@ -290,18 +474,28 @@ export default function Authed({ onSignOut }) {
               </div>
 
               {addError && (
-                <div className="muted" style={{ color: "var(--error, #b00020)" }}>
+                <div
+                  className="muted"
+                  style={{ color: "var(--error, #b00020)" }}
+                >
                   {addError}
                 </div>
               )}
               {addMsg && (
-                <div className="muted" style={{ color: "var(--success, #0a7d29)" }}>
+                <div
+                  className="muted"
+                  style={{ color: "var(--success, #0a7d29)" }}
+                >
                   {addMsg}
                 </div>
               )}
 
               <div style={{ display: "flex", gap: 8 }}>
-                <button className="btn btn-primary" type="submit" disabled={addBusy}>
+                <button
+                  className="btn btn-primary"
+                  type="submit"
+                  disabled={addBusy}
+                >
                   {addBusy ? "Saving…" : "Save habit"}
                 </button>
                 <button
@@ -318,6 +512,103 @@ export default function Authed({ onSignOut }) {
               </div>
             </form>
           )}
+
+          {/* Checklist body */}
+          {loading ? (
+            <div className="muted" style={{ padding: 12 }}>
+              Loading…
+            </div>
+          ) : err ? (
+            <div
+              className="muted"
+              style={{ color: "var(--error, #b00020)", padding: 12 }}
+            >
+              {err}
+            </div>
+          ) : (
+            <div
+              className="card elev-0"
+              style={{ display: "grid", gap: 12, padding: 12 }}
+            >
+              {PERIODS.map((p) => (
+                <div key={p.key}>{renderSection(p.key, p.label, p.icon)}</div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* ==================== STREAKS ==================== */}
+        <section id="streaks" className="card elev-1">
+          <div className="card-header" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <span role="img" aria-label="flame">🔥</span>
+            <span>Streaks (last 21 days)</span>
+          </div>
+
+          {streakErr && (
+            <div className="muted" style={{ padding: 12 }}>
+              {streakErr}
+            </div>
+          )}
+
+          <div style={{ padding: 12 }}>
+            {streakData.length === 0 ? (
+              <div className="muted">
+                Do some habits and your heatmap will light up here. Connect the
+                daily stats endpoint when ready.
+              </div>
+            ) : (
+              <>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(21, 16px)",
+                    gap: 6,
+                    alignItems: "center",
+                  }}
+                >
+                  {streakData.map((d) => (
+                    <div
+                      key={d.date}
+                      title={`${d.date} — ${Math.round((d.pct || 0) * 100)}% (${d.completed}/${d.total})`}
+                      style={{
+                        width: 16,
+                        height: 16,
+                        borderRadius: 4,
+                        background: cellColor(d.pct || 0),
+                        boxShadow: "inset 0 0 0 1px rgba(0,0,0,.08)",
+                      }}
+                    />
+                  ))}
+                </div>
+
+                <div
+                  className="muted"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    marginTop: 12,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <span>Less</span>
+                  {[0, 0.25, 0.5, 0.75, 1].map((p) => (
+                    <span
+                      key={p}
+                      style={{
+                        width: 16,
+                        height: 16,
+                        borderRadius: 4,
+                        background: cellColor(p),
+                        boxShadow: "inset 0 0 0 1px rgba(0,0,0,.08)",
+                      }}
+                    />
+                  ))}
+                  <span>More</span>
+                </div>
+              </>
+            )}
+          </div>
         </section>
       </main>
     </>
