@@ -1,17 +1,22 @@
-from pydantic import BaseModel
-from typing import Optional
+# app/schemas.py
 from datetime import date
+from typing import Optional, Literal
+from uuid import UUID
+from pydantic import BaseModel
+
+TimePeriod = Literal["MORNING", "AFTERNOON", "NIGHT"]
 
 class GoogleCredential(BaseModel):
     credential: str
 
 class HabitCreate(BaseModel):
     name: str
-    period: str              # 'MORNING' | 'AFTERNOON' | 'NIGHT' (or your enum)
-    local_time: Optional[str] = None  # 'HH:MM' or None
+    period: TimePeriod
+    local_time: Optional[str] = None
 
 class HabitLogCreate(BaseModel):
-    habit_id: int
-    period: str
+    habit_id: UUID
+    period: TimePeriod
     day: date
     completed: bool = True
+    note: Optional[str] = None   # ✅ add this

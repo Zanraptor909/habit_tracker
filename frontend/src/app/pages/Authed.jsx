@@ -13,7 +13,7 @@ const API_BASE = process.env.REACT_APP_API_BASE ?? "";
 const CHECKLIST_PATH = "/api/checklist/today";
 const LOG_PATH = "/api/habit_log";
 const HABITS_PATH = "/api/habits";
-const STATS_PATH = "/api/stats/daily_completion"; // optional (try/catch)
+const STATS_PATH = "/api/stats/daily_completion";
 
 const PERIODS = [
   { key: "MORNING", label: "Morning", icon: "☀️" },
@@ -21,38 +21,52 @@ const PERIODS = [
   { key: "NIGHT", label: "Night", icon: "🌙" },
 ];
 
+// --- Local date helpers (avoid UTC parse drift) ---
+const toISODateLocal = (d) => {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+};
+const parseISODateLocal = (s) => {
+  const [y, m, d] = (s || "").split("-").map(Number);
+  return new Date(y || 1970, (m || 1) - 1, d || 1);
+};
+
 export default function Authed({ onSignOut }) {
   const { user } = useAuth(); // { id, email, name, image_url }
   const displayName = user?.name || user?.email || "Account";
-  const todayISO = useMemo(() => new Date().toISOString().slice(0, 10), []);
+
+  const todayISO = useMemo(() => toISODateLocal(new Date()), []);
+  const [day, setDay] = useState(todayISO);
 
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
   const [postingId, setPostingId] = useState(null);
 
-  // --- Add Habit form state ---
+  // Add Habit form
   const [showAdd, setShowAdd] = useState(false);
   const [addName, setAddName] = useState("");
   const [addPeriod, setAddPeriod] = useState("MORNING");
-  const [addTime, setAddTime] = useState(""); // "08:00"
+  const [addTime, setAddTime] = useState("");
   const [addBusy, setAddBusy] = useState(false);
   const [addMsg, setAddMsg] = useState(null);
   const [addError, setAddError] = useState(null);
 
-  // --- Streak data (last 21 days) ---
+  // Streaks
   const [streakData, setStreakData] = useState([]); // [{date, completed, total, pct}]
   const [streakErr, setStreakErr] = useState(null);
 
-  // ---- Helper: fetch today's checklist for this user ----
+  // ---- Fetch checklist for selected day ----
   const fetchChecklist = useCallback(async () => {
     if (!user?.id) return;
     setLoading(true);
     setErr(null);
-
     try {
       const url = new URL(API_BASE + CHECKLIST_PATH, window.location.origin);
       url.searchParams.set("user_id", String(user.id));
+      url.searchParams.set("day", day); // <<< tell backend which calendar day
 
       const r = await fetch(url.toString(), {
         method: "GET",
@@ -65,16 +79,16 @@ export default function Authed({ onSignOut }) {
       setItems(Array.isArray(data) ? data : []);
     } catch (e) {
       setErr(e.message || "Failed to load");
+      setItems([]);
     } finally {
       setLoading(false);
     }
-  }, [user?.id]);
+  }, [user?.id, day]);
 
-  // ---- Helper: fetch streaks (optional endpoint) ----
+  // ---- Fetch streaks (last 21 days) ----
   const fetchStreaks = useCallback(async () => {
     if (!user?.id) return;
     setStreakErr(null);
-
     try {
       const url = new URL(API_BASE + STATS_PATH, window.location.origin);
       url.searchParams.set("user_id", String(user.id));
@@ -85,56 +99,32 @@ export default function Authed({ onSignOut }) {
         credentials: "include",
         headers: { "Content-Type": "application/json" },
       });
-
       if (!r.ok) throw new Error((await r.text()) || `Failed ${r.status}`);
-      // Expected shape: [{date:'YYYY-MM-DD', completed: <int>, total: <int>, pct: <0..1>}]
+
       const data = await r.json();
-      if (Array.isArray(data) && data.length) {
-        setStreakData(
-          data.map((d) => ({
-            date: d.date,
-            completed: Number(d.completed ?? 0),
-            total: Number(d.total ?? 0),
-            pct:
-              d.pct != null
-                ? Number(d.pct)
-                : Number(d.total) > 0
-                ? Number(d.completed) / Number(d.total)
-                : 0,
-          }))
-        );
-      } else {
-        // graceful placeholder if no data returned
-        setStreakData([]);
-      }
+      const cleaned = (Array.isArray(data) ? data : []).map((d) => {
+        const completed = Number(d?.completed ?? 0);
+        const total = Number(d?.total ?? 0);
+        const pct = total > 0 ? (d?.pct != null ? Number(d.pct) : completed / total) : 0;
+        const date = String(d?.date ?? "");
+        return { date, completed, total, pct: Number.isFinite(pct) ? pct : 0 };
+      });
+      setStreakData(cleaned);
     } catch (e) {
-      // No backend yet? Show a placeholder rather than error spam.
-      setStreakErr(
-        "Streak data endpoint not available yet. Hook up /api/stats/daily_completion when ready."
-      );
+      setStreakErr("Could not load streak data.");
       setStreakData([]);
     }
   }, [user?.id]);
 
-  // ---- Load checklist + streaks on mount/user change ----
+  // Load on mount & when day/user changes
   useEffect(() => {
     fetchChecklist();
     fetchStreaks();
   }, [fetchChecklist, fetchStreaks]);
 
-  // ---- Mark done handler (optimistic) ----
+  // ---- Mark done (NO optimistic toggle) ----
   const markDone = async (habit_id, period) => {
     setPostingId(habit_id);
-
-    // optimistic set completed
-    setItems((prev) =>
-      prev.map((it) =>
-        it.habit_id === habit_id && it.period === period
-          ? { ...it, completed: true }
-          : it
-      )
-    );
-
     try {
       const res = await fetch(API_BASE + LOG_PATH, {
         method: "POST",
@@ -143,23 +133,15 @@ export default function Authed({ onSignOut }) {
         body: JSON.stringify({
           habit_id,
           period,
-          day: todayISO,
+          day, // bind completion to selected calendar day
           completed: true,
         }),
       });
-      if (!res.ok) {
-        // revert
-        setItems((prev) =>
-          prev.map((it) =>
-            it.habit_id === habit_id && it.period === period
-              ? { ...it, completed: false }
-              : it
-          )
-        );
-        throw new Error((await res.text()) || `POST /habit_log failed`);
-      }
-      // Update streaks too (today changed)
-      fetchStreaks();
+      if (!res.ok) throw new Error((await res.text()) || `POST /habit_log failed`);
+
+      // Pull fresh state for THIS day from the server
+      await fetchChecklist();
+      await fetchStreaks();
     } catch (e) {
       console.error(e);
       alert(e.message || "Failed to mark done");
@@ -189,27 +171,19 @@ export default function Authed({ onSignOut }) {
         body: JSON.stringify({
           user_id: user?.id,
           name,
-          period: addPeriod, // 'MORNING' | 'AFTERNOON' | 'NIGHT'
-          local_time: addTime || null, // optional "HH:MM"
+          period: addPeriod,
+          local_time: addTime || null,
         }),
       });
 
-      if (!res.ok) {
-        throw new Error((await res.text()) || `POST /api/habits failed`);
-      }
+      if (!res.ok) throw new Error((await res.text()) || `POST /api/habits failed`);
 
-      // Reset form + confirm message
       setAddName("");
       setAddPeriod("MORNING");
       setAddTime("");
-      setAddMsg("Habit created! It will appear in Today when scheduled.");
-
-      // Refresh lists (no hard reload)
+      setAddMsg("Habit created!");
       await fetchChecklist();
       await fetchStreaks();
-
-      // Optional: close form after success
-      // setShowAdd(false);
     } catch (e) {
       setAddError(e.message || "Failed to create habit");
     } finally {
@@ -217,18 +191,20 @@ export default function Authed({ onSignOut }) {
     }
   };
 
-  // ---- Group & sort items by period, then by time then name ----
+  // ---- Day navigation (local calendar math) ----
+  const shiftDay = (days) => {
+    const d = parseISODateLocal(day);
+    d.setDate(d.getDate() + days);
+    setDay(toISODateLocal(d));
+  };
+
+  // ---- Group & sort items ----
   const grouped = useMemo2(() => {
-    const byPeriod = {
-      MORNING: [],
-      AFTERNOON: [],
-      NIGHT: [],
-    };
+    const byPeriod = { MORNING: [], AFTERNOON: [], NIGHT: [] };
     for (const it of items) {
       if (byPeriod[it.period]) byPeriod[it.period].push(it);
     }
     const sortFn = (a, b) => {
-      // sort null/empty times last
       const ta = a.local_time || "99:99";
       const tb = b.local_time || "99:99";
       if (ta !== tb) return ta.localeCompare(tb);
@@ -244,10 +220,7 @@ export default function Authed({ onSignOut }) {
     const list = grouped[periodKey] || [];
     return (
       <div className="card elev-0" style={{ padding: 12 }}>
-        <div
-          className="card-header"
-          style={{ display: "flex", alignItems: "center", gap: 8 }}
-        >
+        <div className="card-header" style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 20, lineHeight: 1 }}>{icon}</span>
           <span style={{ fontWeight: 600 }}>{label}</span>
         </div>
@@ -260,7 +233,7 @@ export default function Authed({ onSignOut }) {
           <ul className="list">
             {list.map((it) => (
               <li
-                key={`${it.habit_id}-${it.period}`}
+                key={`${it.habit_id}-${it.period}-${day}`} // include day to avoid React reuse across days
                 className="list-item"
                 style={{ display: "grid", gap: 6 }}
               >
@@ -273,14 +246,7 @@ export default function Authed({ onSignOut }) {
                     gap: 12,
                   }}
                 >
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      minWidth: 0,
-                    }}
-                  >
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
                     <strong
                       style={{
                         whiteSpace: "nowrap",
@@ -290,12 +256,8 @@ export default function Authed({ onSignOut }) {
                     >
                       {it.name}
                     </strong>
-                    {/* Inline badge when completed */}
                     {it.completed && (
-                      <span
-                        className="chip"
-                        style={{ fontSize: 12, padding: "2px 6px" }}
-                      >
+                      <span className="chip" style={{ fontSize: 12, padding: "2px 6px" }}>
                         Done
                       </span>
                     )}
@@ -316,14 +278,9 @@ export default function Authed({ onSignOut }) {
                 </div>
 
                 {/* Second row: meta */}
-                <div
-                  className="muted"
-                  style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
-                >
+                <div className="muted" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <span>{label}</span>
-                  {it.local_time ? (
-                    <span>• Reminder {it.local_time}</span>
-                  ) : null}
+                  {it.local_time ? <span>• Reminder {it.local_time}</span> : null}
                 </div>
               </li>
             ))}
@@ -340,7 +297,6 @@ export default function Authed({ onSignOut }) {
   }, [streakData]);
 
   const cellColor = (pct) => {
-    // Green hue, darker with higher pct; keep accessible contrast
     const intensity = Math.round(90 - Math.min(1, pct / (maxPct || 1)) * 60); // 90% -> 30%
     return `hsl(140 60% ${intensity}%)`;
   };
@@ -348,30 +304,18 @@ export default function Authed({ onSignOut }) {
   return (
     <>
       <header className="navbar">
-        <div
-          className="container"
-          style={{ display: "flex", justifyContent: "space-between" }}
-        >
+        <div className="container" style={{ display: "flex", justifyContent: "space-between" }}>
           <strong>Habit Tracker</strong>
 
           <nav style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <a className="btn btn-text" href="#today">
-              Today
-            </a>
-            <a className="btn btn-text" href="#streaks">
-              Streaks
-            </a>
+            <a className="btn btn-text" href="#today">Today</a>
+            <a className="btn btn-text" href="#streaks">Streaks</a>
 
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <img
                 src={userImg}
                 alt="User"
-                style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 8,
-                  objectFit: "cover",
-                }}
+                style={{ width: 36, height: 36, borderRadius: 8, objectFit: "cover" }}
               />
               <span
                 className="muted"
@@ -395,9 +339,8 @@ export default function Authed({ onSignOut }) {
       </header>
 
       <main className="container" style={{ padding: "32px 0" }}>
-        {/* ==================== TODAY ==================== */}
+        {/* ======= TODAY ======= */}
         <section id="today" className="card elev-1" style={{ marginBottom: 16 }}>
-          {/* Header now has Add Habit on the right */}
           <div
             className="card-header"
             style={{
@@ -405,10 +348,23 @@ export default function Authed({ onSignOut }) {
               alignItems: "center",
               justifyContent: "space-between",
               gap: 12,
+              flexWrap: "wrap",
             }}
           >
             <span>Today’s Checklist</span>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <button className="btn btn-outline btn-sm" onClick={() => shiftDay(-1)} title="Previous day">
+                ◀ Prev
+              </button>
+              <strong>{day}</strong>
+              <button className="btn btn-outline btn-sm" onClick={() => shiftDay(+1)} title="Next day">
+                Next ▶
+              </button>
+              {day !== todayISO && (
+                <button className="btn btn-text btn-sm" onClick={() => setDay(todayISO)} title="Jump to today">
+                  Today
+                </button>
+              )}
               <button
                 className="btn btn-primary btn-sm"
                 onClick={() => {
@@ -422,7 +378,7 @@ export default function Authed({ onSignOut }) {
             </div>
           </div>
 
-          {/* Inline Add Habit form (toggles inside Today card) */}
+          {/* Add Habit */}
           {showAdd && (
             <form
               onSubmit={onAddHabit}
@@ -430,9 +386,7 @@ export default function Authed({ onSignOut }) {
               style={{ padding: 12, display: "grid", gap: 12, margin: "0 12px 12px" }}
             >
               <div style={{ display: "grid", gap: 6 }}>
-                <label htmlFor="habit-name">
-                  <strong>Name</strong>
-                </label>
+                <label htmlFor="habit-name"><strong>Name</strong></label>
                 <input
                   id="habit-name"
                   className="input"
@@ -444,9 +398,7 @@ export default function Authed({ onSignOut }) {
               </div>
 
               <div style={{ display: "grid", gap: 6 }}>
-                <label htmlFor="habit-period">
-                  <strong>Period</strong>
-                </label>
+                <label htmlFor="habit-period"><strong>Period</strong></label>
                 <select
                   id="habit-period"
                   className="input"
@@ -461,8 +413,7 @@ export default function Authed({ onSignOut }) {
 
               <div style={{ display: "grid", gap: 6 }}>
                 <label htmlFor="habit-time">
-                  <strong>Reminder time</strong>{" "}
-                  <span className="muted">(optional)</span>
+                  <strong>Reminder time</strong> <span className="muted">(optional)</span>
                 </label>
                 <input
                   id="habit-time"
@@ -474,28 +425,18 @@ export default function Authed({ onSignOut }) {
               </div>
 
               {addError && (
-                <div
-                  className="muted"
-                  style={{ color: "var(--error, #b00020)" }}
-                >
+                <div className="muted" style={{ color: "var(--error, #b00020)" }}>
                   {addError}
                 </div>
               )}
               {addMsg && (
-                <div
-                  className="muted"
-                  style={{ color: "var(--success, #0a7d29)" }}
-                >
+                <div className="muted" style={{ color: "var(--success, #0a7d29)" }}>
                   {addMsg}
                 </div>
               )}
 
               <div style={{ display: "flex", gap: 8 }}>
-                <button
-                  className="btn btn-primary"
-                  type="submit"
-                  disabled={addBusy}
-                >
+                <button className="btn btn-primary" type="submit" disabled={addBusy}>
                   {addBusy ? "Saving…" : "Save habit"}
                 </button>
                 <button
@@ -515,21 +456,11 @@ export default function Authed({ onSignOut }) {
 
           {/* Checklist body */}
           {loading ? (
-            <div className="muted" style={{ padding: 12 }}>
-              Loading…
-            </div>
+            <div className="muted" style={{ padding: 12 }}>Loading…</div>
           ) : err ? (
-            <div
-              className="muted"
-              style={{ color: "var(--error, #b00020)", padding: 12 }}
-            >
-              {err}
-            </div>
+            <div className="muted" style={{ color: "var(--error, #b00020)", padding: 12 }}>{err}</div>
           ) : (
-            <div
-              className="card elev-0"
-              style={{ display: "grid", gap: 12, padding: 12 }}
-            >
+            <div className="card elev-0" style={{ display: "grid", gap: 12, padding: 12 }}>
               {PERIODS.map((p) => (
                 <div key={p.key}>{renderSection(p.key, p.label, p.icon)}</div>
               ))}
@@ -537,7 +468,7 @@ export default function Authed({ onSignOut }) {
           )}
         </section>
 
-        {/* ==================== STREAKS ==================== */}
+        {/* ======= STREAKS ======= */}
         <section id="streaks" className="card elev-1">
           <div className="card-header" style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <span role="img" aria-label="flame">🔥</span>
@@ -545,16 +476,13 @@ export default function Authed({ onSignOut }) {
           </div>
 
           {streakErr && (
-            <div className="muted" style={{ padding: 12 }}>
-              {streakErr}
-            </div>
+            <div className="muted" style={{ padding: 12 }}>{streakErr}</div>
           )}
 
           <div style={{ padding: 12 }}>
             {streakData.length === 0 ? (
               <div className="muted">
-                Do some habits and your heatmap will light up here. Connect the
-                daily stats endpoint when ready.
+                Do some habits and your heatmap will light up here.
               </div>
             ) : (
               <>
