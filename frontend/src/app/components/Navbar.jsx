@@ -1,7 +1,8 @@
 // src/app/components/Navbar.jsx
 import React from "react";
+import { NavLink, Link } from "react-router-dom";
 import { useAuth } from "../authed/AuthProvider";
-import "../styles/navbar.css";   // ✅ add this
+import "../styles/navbar.css";
 
 export default function Navbar({ onSignOut }) {
   const { user } = useAuth();
@@ -9,16 +10,29 @@ export default function Navbar({ onSignOut }) {
   return (
     <header className="navbar">
       <div className="container">
-        {/* Left: brand */}
-        <div className="brand">Habit Tracker</div>
+        {/* Left: brand (link to home or app) */}
+        <div className="brand">
+          <Link to={user ? "/app" : "/"} className="brand-link">Habit Tracker</Link>
+        </div>
 
-        {/* Center: Today + My Habits */}
+        {/* Center: Chores + My Habits */}
         <nav className="nav-center">
-          <a className="btn btn-text" href="#today">Today</a>
-          <a className="btn btn-text" href="#habits">My Habits</a>
+          <NavLink
+            to="/chores"
+            className={({ isActive }) => `btn btn-text ${isActive ? "active" : ""}`}
+          >
+            Chores
+          </NavLink>
+
+          <NavLink
+            to="/app"
+            className={({ isActive }) => `btn btn-text ${isActive ? "active" : ""}`}
+          >
+            My Habits
+          </NavLink>
         </nav>
 
-        {/* Right: user info */}
+        {/* Right: user info or marketing links */}
         <div className="nav-right">
           {user ? (
             <>
@@ -29,12 +43,12 @@ export default function Navbar({ onSignOut }) {
                   style={{
                     width: 32,
                     height: 32,
-                    borderRadius: 6,
+                    borderRadius: 6, // rounded square avatar
                     objectFit: "cover",
                   }}
                 />
               )}
-              <span>{user.name || user.email}</span>
+              <span className="user-name">{user.name || user.email}</span>
               <button className="btn btn-text" onClick={onSignOut}>
                 Sign out
               </button>

@@ -3,6 +3,7 @@ import React from "react";
 import { Routes, Route, useNavigate } from "react-router-dom";
 import Landing from "./app/pages/Landing";
 import Authed from "./app/pages/Authed";
+import Chores from "./app/pages/authed/Chores";
 import ProtectedRoute from "./app/authed/ProtectedRoute";
 import { useAuth } from "./app/authed/AuthProvider";   // ✅ use real provider
 
@@ -24,6 +25,7 @@ export default function App() {
       <Route path="/" element={<Landing />} />   {/* ✅ no onSignIn prop */}
       <Route element={<ProtectedRoute isAuthed={isAuthed} />}>
         <Route path="/app" element={<Authed onSignOut={handleSignOut} />} />
+        <Route path="/chores" element={<Chores />} />
       </Route>
       <Route path="*" element={<Landing />} />
     </Routes>
