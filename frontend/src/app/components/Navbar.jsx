@@ -1,6 +1,6 @@
 // src/app/components/Navbar.jsx
 import React from "react";
-import { NavLink, Link } from "react-router-dom";
+import { NavLink } from "react-router-dom";
 import { useAuth } from "../authed/AuthProvider";
 import "../styles/navbar.css";
 
@@ -12,7 +12,7 @@ export default function Navbar({ onSignOut }) {
       <div className="container">
         {/* Left: brand (link to home or app) */}
         <div className="brand">
-          <Link to={user ? "/app" : "/"} className="brand-link">Habit Tracker</Link>
+          <h1 className="brand-title">Habit Tracker</h1>
         </div>
 
         {/* Center: Chores + My Habits */}

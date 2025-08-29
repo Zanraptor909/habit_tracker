@@ -1,7 +1,6 @@
 // src/app/pages/Authed.jsx
 import React from "react";
 import { useAuth } from "../authed/AuthProvider";
-import Navbar from "../components/Navbar";
 import ChecklistPanel from "../components/ChecklistPanel";
 import StreaksPanel from "../components/StreaksPanel";
 
@@ -12,8 +11,6 @@ export default function Authed({ onSignOut }) {
 
   return (
     <>
-      {/* Shared Navbar */}
-      <Navbar onSignOut={onSignOut} />
 
       <main className="container" style={{ padding: "32px 0" }}>
         {/* ======= CHECKLIST (reusable) ======= */}

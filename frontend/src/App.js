@@ -1,18 +1,29 @@
 // src/App.js
 import React from "react";
-import { Routes, Route, useNavigate } from "react-router-dom";
+import { Routes, Route, useNavigate, Outlet } from "react-router-dom";
 import Landing from "./app/pages/Landing";
 import Authed from "./app/pages/Authed";
 import Chores from "./app/pages/authed/Chores";
 import ProtectedRoute from "./app/authed/ProtectedRoute";
-import { useAuth } from "./app/authed/AuthProvider";   // ✅ use real provider
+import { useAuth } from "./app/authed/AuthProvider";
+import Navbar from "./app/components/Navbar";
 
 import "./app/styles/App.css";
+
+function AuthedShell({ onSignOut }) {
+  return (
+    <>
+      <Navbar onSignOut={onSignOut} />
+      <main className="container" style={{ paddingTop: 16 }}>
+        <Outlet />
+      </main>
+    </>
+  );
+}
 
 export default function App() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-
   const isAuthed = !!user;
 
   const handleSignOut = async () => {
@@ -22,11 +33,16 @@ export default function App() {
 
   return (
     <Routes>
-      <Route path="/" element={<Landing />} />   {/* ✅ no onSignIn prop */}
+      <Route path="/" element={<Landing />} />
+
+      {/* Protected area */}
       <Route element={<ProtectedRoute isAuthed={isAuthed} />}>
-        <Route path="/app" element={<Authed onSignOut={handleSignOut} />} />
-        <Route path="/chores" element={<Chores />} />
+        <Route element={<AuthedShell onSignOut={handleSignOut} />}>
+          <Route path="/app" element={<Authed />} />
+          <Route path="/chores" element={<Chores />} />
+        </Route>
       </Route>
+
       <Route path="*" element={<Landing />} />
     </Routes>
   );
