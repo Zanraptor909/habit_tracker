@@ -30,7 +30,7 @@ export default function Landing() {
       <section id="features" className="container" style={{ padding: "48px 0" }}>
         <div className="card elev-1">
           <div className="card-header">Fast, minimal, Google‑sign‑in.</div>
-          <p className="muted">This is a placeholder Feature section. Replace with reusable components later.</p>
+          <p className="muted">Daily habit tracking. Streaks heat map. Custom Habits. Daily/Weekly/Monthly Chores List.</p>
         </div>
       </section>
     </>

@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     JWT_AUD: str = "habit-tracker"
     JWT_EXPIRES_DAYS: int = 30
 
-    FRONTEND_ORIGIN: str = "http://localhost:3000"
+    FRONTEND_ORIGIN: str = "https://habit-tracker-dusky-five.vercel.app/"
 
     COOKIE_NAME: str = "session"
     COOKIE_DOMAIN: str = "localhost"

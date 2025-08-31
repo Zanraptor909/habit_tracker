@@ -4,6 +4,8 @@ import { GoogleLogin, googleLogout } from "@react-oauth/google";
 import { useAuth } from "../authed/AuthProvider";   // ✅ corrected path
 import { useNavigate } from "react-router-dom";
 
+const API_BASE = process.env.REACT_APP_API_BASE ?? "";
+
 export default function GoogleSignInButton() {
   const { setUser } = useAuth();
   const navigate = useNavigate();
@@ -13,7 +15,7 @@ export default function GoogleSignInButton() {
       useOneTap
       onSuccess={async (credentialResponse) => {
         try {
-          const res = await fetch("/auth/google", {
+          const res = await fetch("${API_BASE}/auth/google", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             credentials: "include",

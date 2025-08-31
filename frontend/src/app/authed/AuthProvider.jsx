@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 
 const AuthContext = createContext(null);
+const API_BASE = process.env.REACT_APP_API_BASE ?? "";
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);     // {id, email, name, image_url}
@@ -10,7 +11,7 @@ export function AuthProvider({ children }) {
     // on load, ask backend who we are (checks session cookie)
     (async () => {
       try {
-        const res = await fetch("/me", { credentials: "include" });
+        const res = await fetch(`${API_BASE}/me`, { credentials: "include" });
         if (res.ok) {
           const data = await res.json();
           setUser(data.user ?? null);
